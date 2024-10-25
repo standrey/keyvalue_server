@@ -1,0 +1,13 @@
+namespace Homework;
+
+table Member {
+    key:string;
+    value:string;
+}
+
+table Request {
+    operation:string;
+    member:Member;
+}
+
+root_type Request;

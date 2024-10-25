@@ -1,0 +1,6 @@
+[submodule "extern/flatbuffers"]
+	path = extern/flatbuffers
+	url = https://github.com/google/flatbuffers
+[submodule "extern/libuv"]
+	path = extern/libuv
+	url = https://github.com/libuv/libuv
