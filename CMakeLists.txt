@@ -3,7 +3,6 @@ project(serverclient LANGUAGES CXX)
 
 include(lib_config.cmake)
 
-add_subdirectory(external)
 
 find_package(Git QUIET)
 if(GIT_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
@@ -22,6 +21,10 @@ endif()
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/extern/libuv/CMakeLists.txt")
   message(FATAL "The submodules were not downloaded! git submodule was turned off or failed.")
 endif()
+
+add_subdirectory(flatbuffers ${CMAKE_CURRENT_BINARY_DIR}/extern/flatbuffer-build EXCLUDE_FROM_ALL)
+add_subdirectory(libuv ${CMAKE_CURRENT_BINARY_DIR}/extern/libuv-build EXCLUDE_FROM_ALL)
+
 
 flatbuffers_generate_headers(
 TARGET FlatBuffersGeneratedHeaders
