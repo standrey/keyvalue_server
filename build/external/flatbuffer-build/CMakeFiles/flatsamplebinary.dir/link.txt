@@ -1,1 +1,0 @@
-/usr/bin/c++ -g CMakeFiles/flatsamplebinary.dir/samples/sample_binary.cpp.o -o flatsamplebinary

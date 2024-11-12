@@ -1,1 +1,1 @@
-/usr/bin/c++ -g CMakeFiles/client.dir/src/client/main.cpp.o -o client  external/flatbuffer-build/libflatbuffers.a external/libuv-build/libuv.a -lstdc++ -lpthread -ldl -lrt
+/usr/bin/c++ -g -fsanitize=address CMakeFiles/client.dir/src/client/main.cpp.o -o client  extern/flatbuffers/libflatbuffers.a extern/libuv/libuv.a -lstdc++ -lpthread -ldl -lrt

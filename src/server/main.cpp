@@ -1,4 +1,3 @@
-// cpp
 #include <map>
 
 // flatbuffers
@@ -56,10 +55,6 @@ void send_command_back(transport_data * tr_data) {
     uv_buf_t buf = uv_buf_init(tr_data->r_buffer, tr_data->r_buffer_size);
     uv_write_t * write_req = (uv_write_t *)calloc(1, sizeof(uv_write_t));
     write_req->data = tr_data;
-
-#ifdef SAS_DEBUG
-printf("-SAS- network buffer size %ld\n",tr_data->r_buffer_size);
-#endif
 
     int res = uv_write(write_req, (uv_stream_t *)tr_data->handle, &buf, 1, on_write_end);
     if (res) {
@@ -133,11 +128,13 @@ void process_command(transport_data * data) {
         builder.Finish(reply);
     }
 
-    free(data->r_buffer), data->r_buffer = NULL;
+    SAS_FREE(data->r_buffer);
+
     // malloc data for send buffer
     int sz = (int)builder.GetSize();
     data->r_buffer_size = sz + sizeof(int);
     data->r_buffer = (char*)malloc(data->r_buffer_size);
+    data->raw_json = nullptr;
 
     // copy int to char buffer
     data->r_buffer[0] = (sz>>24)&0xFF;
@@ -149,7 +146,6 @@ void process_command(transport_data * data) {
     memcpy(data->r_buffer + sizeof(sz), (void *)builder.GetBufferPointer(), sz);
 
     builder.Clear();
-
 }
 
 transport_data * read_next_flatbuffer(uv_stream_t * stream, ssize_t & sz, const ssize_t nread, const char *base) {

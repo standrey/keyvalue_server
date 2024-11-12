@@ -22,8 +22,12 @@ if(NOT EXISTS "${PROJECT_SOURCE_DIR}/extern/libuv/CMakeLists.txt")
   message(FATAL "The submodules were not downloaded! git submodule was turned off or failed.")
 endif()
 
-add_subdirectory(flatbuffers ${CMAKE_CURRENT_BINARY_DIR}/extern/flatbuffer-build EXCLUDE_FROM_ALL)
-add_subdirectory(libuv ${CMAKE_CURRENT_BINARY_DIR}/extern/libuv-build EXCLUDE_FROM_ALL)
+
+add_subdirectory(extern/flatbuffers)
+add_subdirectory(extern/libuv)
+
+# add_subdirectory(flatbuffers ${CMAKE_CURRENT_BINARY_DIR}/extern/flatbuffer-build EXCLUDE_FROM_ALL)
+#add_subdirectory(libuv ${CMAKE_CURRENT_BINARY_DIR}/extern/libuv-build EXCLUDE_FROM_ALL)
 
 
 flatbuffers_generate_headers(
@@ -39,6 +43,11 @@ target_include_directories(server PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffers
 
 target_link_libraries(client PRIVATE flatbuffers uv_a)
 target_link_libraries(server PRIVATE flatbuffers uv_a)
+
+target_link_options(client PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
+target_link_options(server PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
+target_compile_options(client PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
+target_compile_options(server PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
 
 function(PrintTargetLibraries target msg)
   get_target_property(linkedLibs ${target} LINK_LIBRARIES)
