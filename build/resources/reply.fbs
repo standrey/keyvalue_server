@@ -1,9 +1,0 @@
-namespace Homework;
-
-table Reply {
-    code:int;
-    value:string;
-}
-
-root_type Reply;
-
