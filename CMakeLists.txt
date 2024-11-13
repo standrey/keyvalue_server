@@ -25,7 +25,7 @@ endif()
 
 add_subdirectory(extern/flatbuffers)
 add_subdirectory(extern/libuv)
-
+add_subdirectory(extern/boost EXCLUDE_FROM_ALL)
 # add_subdirectory(flatbuffers ${CMAKE_CURRENT_BINARY_DIR}/extern/flatbuffer-build EXCLUDE_FROM_ALL)
 #add_subdirectory(libuv ${CMAKE_CURRENT_BINARY_DIR}/extern/libuv-build EXCLUDE_FROM_ALL)
 
@@ -35,18 +35,24 @@ TARGET FlatBuffersGeneratedHeaders
 SCHEMAS resources/reply.fbs;resources/request.fbs
 )
 
+add_executable(client_async src/client_async/main.cpp)
+target_include_directories(client_async PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffersGeneratedHeaders)
+
 add_executable(client src/client/main.cpp)
 target_include_directories(client PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffersGeneratedHeaders)
 
 add_executable(server src/server/main.cpp)
 target_include_directories(server PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffersGeneratedHeaders)
 
+target_link_libraries(client_async PRIVATE flatbuffers uv_a Boost::system)
 target_link_libraries(client PRIVATE flatbuffers uv_a)
 target_link_libraries(server PRIVATE flatbuffers uv_a)
 
 target_link_options(client PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
+target_link_options(client_async PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
 target_link_options(server PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
 target_compile_options(client PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
+target_compile_options(client_async PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
 target_compile_options(server PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
 
 function(PrintTargetLibraries target msg)
@@ -61,24 +67,26 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_VERBOSE_MAKEFILE ON)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++20")
 
 PrintTargetLibraries(client "Before linking:")
 
 # compiler options / macro hints
 if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
     if(UNIX OR APPLE)
-      target_compile_options(client
+      target_compile_options(client_async
         PUBLIC
             -stdlib=libc++
             -fcoroutines-ts
         )
     endif()
 elseif(CMAKE_CXX_COMPILER_ID MATCHES GNU)
-  target_compile_options(client
+  target_compile_options(client_async
     PUBLIC
         -fcoroutines
+        -pthread
     )
-    target_link_libraries(client
+    target_link_libraries(client_async
     PUBLIC
         stdc++
     )
