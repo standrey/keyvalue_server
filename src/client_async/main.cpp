@@ -4,6 +4,11 @@
 #include <boost/asio.hpp>
 #include <boost/endian/arithmetic.hpp>
 #include <array>
+#include "transport.h"
+
+#include "request_generated.h"
+#include <flatbuffers/util.h>
+#include <flatbuffers/idl.h>
 
 namespace Homework
 {
@@ -26,10 +31,37 @@ private:
         co_return s;
     }
 
+    std::pair<char*, std::size_t> MakeFbCommand(const std::string & json)
+    {
+        flatbuffers::Parser request_parsr;
+        std::string schemafile;
+        if (!flatbuffers::LoadFile("./resources/request.fbs", false, &schemafile)) {
+            std::cerr << "Loading fbs file failed!" << std::endl;
+            return {nullptr, 0};
+        }
+
+        flatbuffers::Parser parser;
+        parser.Parse(schemafile.c_str());
+        if (!parser.Parse(json.c_str())) { 
+            std::cerr << "Parsing json string failed!" << std::endl;
+            return {nullptr, 0};
+        }
+
+        int fb_data_size = (int)parser.builder_.GetSize();
+        std::size_t network_data_size = sizeof(char) * fb_data_size  + sizeof(int);
+        char * buff = new char[network_data_size];
+        std::memcpy(buff, &fb_data_size, sizeof(fb_data_size));
+        std::memcpy(buff + sizeof(fb_data_size), parser.builder_.GetBufferPointer(), fb_data_size);
+        return {buff, fb_data_size};
+    }
+
     boost::asio::awaitable<bool> SendJsonAsync(Sock& socket, const std::string & json)
     {
-        auto content_size = json.size();
-        co_await async_write(socket, boost::asio::buffer(&content_size, sizeof(content_size)), boost::asio::use_awaitable);
+        auto [content_data_ptr, content_size] = MakeFbCommand(json);
+        if (content_data_ptr == nullptr) {
+            co_return false;
+        }
+        co_await async_write(socket, boost::asio::buffer(content_data_ptr, sizeof(content_size)), boost::asio::use_awaitable);
         co_return true;
     }
 
