@@ -55,14 +55,11 @@ private:
         return {buff, fb_data_size};
     }
 
-    boost::asio::awaitable<bool> SendJsonAsync(Sock& socket, const std::string & json)
+    boost::asio::awaitable<void> SendJsonAsync(Sock& socket, const std::string & json)
     {
         auto [content_data_ptr, content_size] = MakeFbCommand(json);
-        if (content_data_ptr == nullptr) {
-            co_return false;
-        }
+        if (content_data_ptr != nullptr) 
         co_await async_write(socket, boost::asio::buffer(content_data_ptr, sizeof(content_size)), boost::asio::use_awaitable);
-        co_return true;
     }
 
 public: 
@@ -72,10 +69,14 @@ public:
         std::promise<bool> p;
         std::future<bool> f = p.get_future();
 
-        co_spawn(ioc, [=, this]() mutable -> boost::asio::awaitable<bool> {
-            auto s = co_await ConnectAsync(address, port);
-            bool r = co_await SendJsonAsync(s, R"({"operation":"set","member":{"key":"k3","value":"v3"}})");
-            co_return r;
+        boost::asio::co_spawn(ioc, [=, this]() mutable -> boost::asio::awaitable<bool> {
+            auto socket = co_await ConnectAsync(address, port);
+            std::string json = R"({"operation":"set","member":{"key":"k3","value":"v3"}})";
+            auto [content_data_ptr, content_size] = MakeFbCommand(json);
+            if (content_data_ptr != nullptr) {
+                co_await boost::asio::async_write(socket, boost::asio::buffer(content_data_ptr, sizeof(content_size)), boost::asio::use_awaitable);
+            }
+            co_return true;
         },
         [p = std::move(p)] (std::exception_ptr e , bool r) mutable {
             if(e) p.set_exception(e); else p.set_value(r);
@@ -88,7 +89,7 @@ public:
 
 int main (int argc, char* argv[]) {
     Homework::BoostClient c;
-    bool res = c.ConnectAndSendAsync("127.0.0.1", "7777");
+    bool res = c.ConnectAndSendAsync("127.0.0.1", "7000");
     std::cout << "Data sent : " << std::boolalpha << res << std::endl; 
     return 0;
 }
