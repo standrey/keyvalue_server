@@ -98,3 +98,32 @@ configure_file(resources/request.fbs resources/request.fbs COPYONLY)
 configure_file(resources/reply.fbs resources/reply.fbs COPYONLY)
 configure_file(resources/requests.json resources/requests.json COPYONLY)
 
+macro(package_add_test TESTNAME)
+    add_executable(${TESTNAME} tests/${ARGN})
+    target_link_libraries(${TESTNAME} gtest gmock gtest_main)
+    gtest_discover_tests(${TESTNAME} 
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+    )
+    set_target_properties(${TESTNAME} PROPERTIES FOLDER tests)
+endmacro()
+
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    include(CTest)
+endif()
+
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME AND BUILD_TESTING)
+    include(FetchContent)
+
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG v1.15.2
+    )
+
+    FetchContent_MakeAvailable(googletest)
+
+    include(GoogleTest)
+    add_test(NAME EmptyTest COMMAND testbinary)
+    package_add_test(testbinary test1.cpp)
+endif()
+
