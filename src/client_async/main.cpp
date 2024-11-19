@@ -3,7 +3,6 @@
 #include <string_view>
 #include <boost/asio.hpp>
 #include <boost/endian/arithmetic.hpp>
-#include <array>
 #include "transport.h"
 
 #include "request_generated.h"
@@ -18,7 +17,7 @@ class BoostClient
     using NetSize  = boost::endian::big_uint64_t;
 
 private:
-    boost::asio::thread_pool ioc{1};
+    boost::asio::thread_pool ioc{2};
 
 private:
     using Sock = boost::asio::deferred_t::as_default_on_t<boost::asio::ip::tcp::socket>;
@@ -55,34 +54,36 @@ private:
         return {buff, fb_data_size};
     }
 
-    boost::asio::awaitable<void> SendJsonAsync(Sock& socket, const std::string & json)
+    boost::asio::awaitable<void> SendJsonAsync(Sock socket)
     {
+        std::string json = R"({"operation":"set","member":{"key":"k3","value":"v3"}})";
         auto [content_data_ptr, content_size] = MakeFbCommand(json);
         if (content_data_ptr != nullptr) 
-        co_await async_write(socket, boost::asio::buffer(content_data_ptr, sizeof(content_size)), boost::asio::use_awaitable);
+        {
+            auto [ec, n] = co_await async_write(socket, boost::asio::buffer(content_data_ptr, sizeof(content_size)), boost::asio::as_tuple(boost::asio::use_awaitable));
+            delete [] content_data_ptr;
+        }
     }
 
 public: 
 
-    void ConnectAndSendAsync(std::string_view address, std::string_view port)
-    {
-        return boost::asio::co_spawn(ioc, [=, this]() mutable -> boost::asio::awaitable<void> {
-            auto socket = co_await ConnectAsync(address, port);
-            std::string json = R"({"operation":"set","member":{"key":"k3","value":"v3"}})";
-            auto [content_data_ptr, content_size] = MakeFbCommand(json);
-            if (content_data_ptr != nullptr) {
-                co_await boost::asio::async_write(socket, boost::asio::buffer(content_data_ptr, sizeof(content_size)), boost::asio::use_awaitable);
-            }
-            delete [] content_data_ptr;
-        }, boost::asio::use_future).get();
+    boost::asio::awaitable<void> ConnectAndSendAsync(std::string_view address, std::string_view port) {
+        auto sock = co_await ConnectAsync(address, port);
+        boost::asio::co_spawn(ioc, SendJsonAsync(std::move(sock)), boost::asio::use_awaitable);
     }
 };
 
 }
 
 int main (int argc, char* argv[]) {
+
     Homework::BoostClient c;
-    c.ConnectAndSendAsync("127.0.0.1", "7000");
+    boost::asio::io_context io_context(1);
+    boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
+    signals.async_wait([&] (auto, auto) { std::cerr << "Stopped"; io_context.stop(); });
+    co_spawn(io_context, c.ConnectAndSendAsync("127.0.0.1", "7000"), boost::asio::detached);
+    io_context.run();
+
     return 0;
 }
 
