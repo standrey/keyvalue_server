@@ -97,6 +97,7 @@ transport_data * read_next_flatbuffer(uv_stream_t * stream, ssize_t & sz, const 
     data_tail_sz = nread - sz;
 
     if (msg.message_buffer == NULL) {
+        msg.message_size = ntohl(msg.message_size);
         msg.message_buffer = (char *) calloc(1, msg.message_size);
     }
 
@@ -175,10 +176,7 @@ void make_fb_command(transport_data * tr_data, flatbuffers::Parser & request_par
     char *transport_buffer = (char *)calloc(1, transport_buffer_size);
 
     // copy int to char buffer
-    transport_buffer[0] = (message_buffer_size >> 24) & 0xFF;
-    transport_buffer[1] = (message_buffer_size >> 16) & 0xFF;
-    transport_buffer[2] = (message_buffer_size >> 8) & 0xFF;
-    transport_buffer[3] = (message_buffer_size >> 0) & 0xFF;
+    memcpy(transport_buffer, &message_buffer_size, 4);
 
     // copy binary data from flatbuffer to char buffer
     memcpy(transport_buffer + sizeof(int), (void *) request_parser.builder_.GetBufferPointer(), message_buffer_size);

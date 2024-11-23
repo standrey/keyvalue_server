@@ -137,10 +137,7 @@ void process_command(transport_data * data) {
     data->raw_json = nullptr;
 
     // copy int to char buffer
-    data->r_buffer[0] = (sz>>24)&0xFF;
-    data->r_buffer[1] = (sz>>16)&0xFF;
-    data->r_buffer[2] = (sz>>8)&0xFF;
-    data->r_buffer[3] = (sz>>0)&0xFF;
+    memcpy(data->r_buffer, &sz, 4);
 
     // copy binary data to buffer
     memcpy(data->r_buffer + sizeof(sz), (void *)builder.GetBufferPointer(), sz);
@@ -178,6 +175,7 @@ transport_data * read_next_flatbuffer(uv_stream_t * stream, ssize_t & sz, const 
     data_tail_sz = nread - sz;
 
     if (msg.message_buffer == NULL) {
+        msg.message_size = ntohl(msg.message_size);
         msg.message_buffer = (char *) calloc(1, msg.message_size);
     }
 
@@ -217,7 +215,11 @@ transport_data * read_next_flatbuffer(uv_stream_t * stream, ssize_t & sz, const 
 
 void read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t *buf) {
     if (nread < 0) {
-        fprintf(stderr, "read error:%s\n", uv_strerror(nread));
+        if (nread != UV_EOF)
+        {
+            fprintf(stderr, "read error:%s\n", uv_strerror(nread));
+        }
+
         if (streams.find(stream) != streams.end()) {
             free(streams[stream].message_buffer);
             streams.erase(stream);

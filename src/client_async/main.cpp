@@ -1,6 +1,8 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <chrono>
 #include <boost/asio.hpp>
 #include <boost/endian/arithmetic.hpp>
 #include "transport.h"
@@ -11,6 +13,8 @@
 
 namespace Homework
 {
+
+using namespace std::chrono_literals;
 
 class BoostClient
 {
@@ -74,6 +78,7 @@ public:
 
             delete [] content_data_ptr;
         }
+        std::this_thread::sleep_for(1000ms);
     }
 };
 
