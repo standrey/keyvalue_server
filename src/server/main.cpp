@@ -6,11 +6,20 @@
 #include "error_codes.h"
 #include "transport.h"
 
+static bool v_mode = false;
+const char * usage_stringsp[] = {
+    "  -d Daemonize",
+    "  -v Verbose mode",
+    NULL
+};
+
 uv_mutex_t mutex;
 static uv_loop_t * loop;
 static uv_tcp_t server;
 
 std::map<uv_stream_t*, halfreaded> streams;
+
+extern int daemonize(const char *);
 
 struct cppmap {
     std::map<std::string, std::string> cont;
@@ -64,7 +73,8 @@ void send_command_back(transport_data * tr_data) {
     }
 }
 
-void process_command(transport_data * data) {
+bool process_command(transport_data * data) {
+    bool isShutdownCommand = false;
     static flatbuffers::FlatBufferBuilder builder(512);
 
     static long total_req = 0;
@@ -75,13 +85,14 @@ void process_command(transport_data * data) {
     auto request = Homework::GetRequest(data->r_buffer);
     if (!request) {
         free(data->r_buffer), data->r_buffer = NULL;
-        return;
+        if (v_mode) printf("\tReceived flatbuffer is empty or null\n");
+        return isShutdownCommand;
     }
 
     ++total_req;
     const char *operation = request->operation()->c_str();
-    printf("\tprocess_command [%s] %s->%s\n", operation, request->member()->key()->c_str(), request->member()->value()->c_str());
-    printf("\tRequest buffer transport size %ld\n", data->r_buffer_size);
+    if (v_mode) printf("\tprocess_command [%s] %s->%s\n", operation, request->member()->key()->c_str(), request->member()->value()->c_str());
+    if (v_mode) printf("\tRequest buffer transport size %ld\n", data->r_buffer_size);
 
     if (strcmp(operation,"get")==0) {
         char *str = NULL;
@@ -104,10 +115,7 @@ void process_command(transport_data * data) {
     else if (strcmp(operation,"set")==0) {
         bool exists = false;
         ++set_req;
-
-        {
-            exists = main_data.exists(request->member()->key()->c_str());
-        }
+        exists = main_data.exists(request->member()->key()->c_str());
 
         if (exists) {
             auto realdata = builder.CreateString("");
@@ -127,6 +135,14 @@ void process_command(transport_data * data) {
         auto reply = Homework::CreateReply(builder, (int32_t)ErrorCodes::SUCCESS, realdata);
         builder.Finish(reply);
     }
+    else if (strcmp(operation, "shutdown") == 0) {
+        char buffer[128];
+        snprintf(buffer, sizeof(buffer), "0");
+        auto realdata = builder.CreateString(buffer);
+        auto reply = Homework::CreateReply(builder, (int32_t)ErrorCodes::SUCCESS, realdata);
+        builder.Finish(reply);
+        isShutdownCommand = true;
+    }
 
     SAS_FREE(data->r_buffer);
 
@@ -143,6 +159,8 @@ void process_command(transport_data * data) {
     memcpy(data->r_buffer + sizeof(sz), (void *)builder.GetBufferPointer(), sz);
 
     builder.Clear();
+
+    return isShutdownCommand;
 }
 
 transport_data * read_next_flatbuffer(uv_stream_t * stream, ssize_t & sz, const ssize_t nread, const char *base) {
@@ -237,15 +255,16 @@ void read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t *buf) {
     static int uid = 0;
     transport_data * request_data = NULL;
     while (request_data = read_next_flatbuffer(stream, readed_bytes, nread, buf->base)) {
-        process_command(request_data);
-        printf("\tRequest buffer transport size %ld\n", request_data->r_buffer_size);
-
-#ifdef SAS_DEBUG
-        printf("-SAS- Transport data size to sent : %ld\n", request_data->r_buffer_size);
-#endif
+        bool isShutdownCommand = process_command(request_data);
+        if (v_mode) printf("\tRequest buffer transport size %ld\n", request_data->r_buffer_size);
 
         send_command_back(request_data);
+        if (isShutdownCommand) {
+            if (v_mode) printf("\tSuccessfully terminated.\n");
+            break;
+        }
     }
+
     free(buf->base);
     uv_mutex_unlock(&mutex);
     return;
@@ -269,6 +288,21 @@ void connection_cb(uv_stream_t * server, int status) {
 
 int main(int argc, char *argv[]) {
 
+    int arg_count = 1;
+    for (; arg_count < argc; ++arg_count){
+        switch(argv[arg_count][1]) {
+            case 'd':
+                {
+                    daemonize("/tmp/serverclient.lock");
+                    break;
+                }
+            case 'v':
+                {
+                    v_mode = true;
+                    break;
+                }
+        }
+    }
 
     uv_mutex_init(&mutex);
     loop = uv_default_loop();

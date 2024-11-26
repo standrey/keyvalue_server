@@ -41,7 +41,10 @@ target_include_directories(client_async PUBLIC include ${CMAKE_BINARY_DIR}/FlatB
 add_executable(client src/client/main.cpp)
 target_include_directories(client PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffersGeneratedHeaders)
 
-add_executable(server src/server/main.cpp)
+add_executable(server 
+    src/server/main.cpp 
+    src/server/daemonize.cpp
+)
 target_include_directories(server PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffersGeneratedHeaders)
 
 target_link_libraries(client_async PRIVATE flatbuffers uv_a Boost::system)
@@ -109,6 +112,7 @@ endmacro()
 
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     include(CTest)
+    message(STATUS "CTest is enabled")
 endif()
 
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME AND BUILD_TESTING)
@@ -125,5 +129,8 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME AND BUILD_TESTING)
     include(GoogleTest)
     add_test(NAME EmptyTest COMMAND testbinary)
     package_add_test(testbinary test1.cpp)
+
+    add_test(NAME ServerTest COMMAND server)
+    add_test(NAME ClientTest COMMAND client --json_commands ./resources/ctest_requests.json)
 endif()
 

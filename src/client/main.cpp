@@ -32,9 +32,9 @@ static void Help(void)
   printf(" client [fbs_request] [fbs_reply] [json_commands]...\n");
   
   printf("Command file options:\n");
-  printf(" -json_commands ...... json commands file\n");
-  printf(" -fbs_request ........ flatbuffer request file\n");
-  printf(" -fbs_reply .......... flatbuffer reply file\n");
+  printf(" --json_commands ...... json commands file\n");
+  printf(" --fbs_request ........ flatbuffer request file\n");
+  printf(" --fbs_reply .......... flatbuffer reply file\n");
   printf("\n");
 }
 
@@ -283,17 +283,17 @@ int main(int argc, char **argv) {
     if (argv[c][0] == '-')
     {
       int parse_error = 0;
-      if (!strcmp(argv[c], "-json_commands") && c + 1 < argc)
+      if (!strcmp(argv[c], "--json_commands") && c + 1 < argc)
       {
         argv[c] = NULL;
         json_input_file = argv[++c];
       } 
-      else if (!strcmp(argv[c], "-fbs_request") && c + 1 < argc)
+      else if (!strcmp(argv[c], "--fbs_request") && c + 1 < argc)
       {
         argv[c] = NULL;
         fbs_request_file = argv[++c];
       }
-      else if (!strcmp(argv[c], "-fbs_reply") && c + 1 < argc)
+      else if (!strcmp(argv[c], "--fbs_reply") && c + 1 < argc)
       {
         argv[c] = NULL;
         fbs_reply_file = argv[++c];
