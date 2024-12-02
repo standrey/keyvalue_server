@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.29)
 project(serverclient LANGUAGES CXX)
 
+# To make neovim happy about headers that end up in build directory
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 include(lib_config.cmake)
 
 
@@ -44,6 +47,7 @@ target_include_directories(client PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffers
 add_executable(server 
     src/server/main.cpp 
     src/server/daemonize.cpp
+    src/server/hashtable.cpp
 )
 target_include_directories(server PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffersGeneratedHeaders)
 
@@ -130,7 +134,8 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME AND BUILD_TESTING)
     add_test(NAME EmptyTest COMMAND testbinary)
     package_add_test(testbinary test1.cpp)
 
-    add_test(NAME ServerTest COMMAND server)
+    configure_file(resources/ctest_requests.json resources/ctest_requests.json COPYONLY)
+    add_test(NAME ServerTest COMMAND server -d)
     add_test(NAME ClientTest COMMAND client --json_commands ./resources/ctest_requests.json)
 endif()
 

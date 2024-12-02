@@ -19,29 +19,36 @@ static void child_handler (int signum) {
     char sz[20];
 
     switch(signum) {
-case SIGALRM:
-    exit(1);
-break;
+        case SIGALRM:
+            {
+                exit(EXIT_FAILURE);
+                break;
+            }
 
-case SIGUSR1:
-    fd= open(lock_path, O_TRUNC | O_RDWR | O_CREAT, 0640);
-if (fd < 0) {
-fprintf(stderr, "unable to create lock file %s, error code %d, error string %s\n", lock_path, errno, strerror(errno));
-exit(1);
-break;
-    }
-len = sprintf(sz, "%u", daemon_pid);
-sent = write(fd, sz, len);
-if (sent != len) {
-        fprintf(stderr, "unable write pid to lock %s, error code %d, string error %s\n", lock_path, errno, strerror(errno));
-    }
-close(fd);
-exit(sent == len);
-break;
-case SIGCHLD:
-    exit(1);
-break;
-    }
+        case SIGUSR1:
+            {
+                fd= open(lock_path, O_TRUNC | O_RDWR | O_CREAT, 0640);
+                if (fd < 0) {
+                    fprintf(stderr, "unable to create lock file %s, error code %d, error string %s\n", lock_path, errno, strerror(errno));
+                    exit(EXIT_FAILURE);
+                } else  {
+                    len = sprintf(sz, "%u", daemon_pid);
+                    sent = write(fd, sz, len);
+                    if (sent != len) {
+                        fprintf(stderr, "unable write pid to lock %s, error code %d, string error %s\n", lock_path, errno, strerror(errno));
+                        exit(EXIT_FAILURE);
+                    }
+                }
+                close(fd);
+                exit(sent == len);
+                break;
+            }
+        case SIGCHLD:
+            {
+                exit(EXIT_FAILURE);
+                break;
+            }
+        }
 }
 
 static void daemon_closing(int sigact) {
@@ -77,7 +84,7 @@ int daemonize(const char* lockpath){
             ret = kill(n, 0);
             if (ret >= 0) {
                 fprintf(stderr, "daemon already running from pid %d\n" , n);
-                exit(1);
+                exit(EXIT_FAILURE);
             }
             fprintf(stderr, "removing stale lock file %s from dead pid %d\n", lockpath, n);
             unlink(lockpath);
@@ -93,6 +100,10 @@ int daemonize(const char* lockpath){
 
     strcpy(lock_path, lockpath);
 
+    for (n = _NSIG; n >=0; --n) {
+        signal(n, SIG_DFL);
+    }
+
     signal(SIGCHLD, child_handler);
     signal(SIGUSR1, child_handler);
     signal(SIGALRM, child_handler);
@@ -100,13 +111,13 @@ int daemonize(const char* lockpath){
     daemon_pid = fork();
     if (daemon_pid < 0) {
         fprintf(stderr, "unable to fork daemon, error code %d, error message %s\n", errno, strerror(errno));
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     if (daemon_pid > 0) {
         alarm(2);
         pause();
-        exit(1);
+        exit(EXIT_SUCCESS);
     }
 
     parent = getppid();
@@ -123,13 +134,14 @@ int daemonize(const char* lockpath){
     sid = setsid();
     if(sid < 0) {
         fprintf(stderr, "unable to create a new session, error code %d, error message %s\n", errno, strerror(errno));
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     if (chdir("/") < 0) {
         fprintf(stderr, "unable to change directory to /, error code %d, error message %s\n", errno, strerror(errno));
-        exit(1);
+        exit(EXIT_FAILURE);
     }
+
 
     if(!freopen("/dev/null", "r", stdin)) { 
         fprintf(stderr, "unable to freopen stdin, error code %d, error message %s\n", errno, strerror(errno));

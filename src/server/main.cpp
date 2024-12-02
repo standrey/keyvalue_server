@@ -1,3 +1,6 @@
+// hashtable implementation
+#include "hashtable.h"
+
 #include <map>
 
 // flatbuffers
@@ -7,7 +10,7 @@
 #include "transport.h"
 
 static bool v_mode = false;
-const char * usage_stringsp[] = {
+const char * usage_strings[] = {
     "  -d Daemonize",
     "  -v Verbose mode",
     NULL
@@ -21,31 +24,37 @@ std::map<uv_stream_t*, halfreaded> streams;
 
 extern int daemonize(const char *);
 
-struct cppmap {
-    std::map<std::string, std::string> cont;
+struct threadsafe_hashtable {
+    struct ht * table = NULL;
 
     void set(const char *k, const char *v) {
-        cont[k] = v;
+        if (table == NULL) {
+            table = ht_make();
+        }
+        ht_set(table, k, strdup(v));
     }
 
-    bool exists(const char *k)
-    {
-        return cont.find(k) != cont.end();
+    bool exists(const char *k) {
+        if (table == NULL) {
+            assert("hash table is not initalized");
+            return false;
+        }
+
+        return ht_get(table, k) != NULL;
     }
 
     char* get(const char* k)
     {
-        if (cont.find(k) == cont.end())
-        {
+        if (table == NULL) {
             return NULL;
         }
-        return strdup(cont[k].c_str());
+
+        return (char *)ht_get(table, k);
     }
 
 };
 
-// main container
-static cppmap main_data;
+static threadsafe_hashtable main_data;
 
 void alloc_buffer(uv_handle_t * handle, size_t size, uv_buf_t *buf) {
     char *base;
@@ -250,24 +259,27 @@ void read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t *buf) {
         return;
     }
 
-    uv_mutex_lock(&mutex);
     ssize_t readed_bytes = 0;
     static int uid = 0;
     transport_data * request_data = NULL;
+    bool isShutdownCommand = false;
     while (request_data = read_next_flatbuffer(stream, readed_bytes, nread, buf->base)) {
-        bool isShutdownCommand = process_command(request_data);
-        if (v_mode) printf("\tRequest buffer transport size %ld\n", request_data->r_buffer_size);
+        isShutdownCommand = process_command(request_data);
+        if (v_mode) {
+            printf("\tRequest buffer transport size %ld\n", request_data->r_buffer_size);
+        }
 
         send_command_back(request_data);
         if (isShutdownCommand) {
-            if (v_mode) printf("\tSuccessfully terminated.\n");
+            if (v_mode) {
+                printf("\tSuccessfully terminated.\n");
+            }
             break;
         }
     }
 
     free(buf->base);
-    uv_mutex_unlock(&mutex);
-    return;
+    uv_close((uv_handle_t*)stream, on_close_free);
 }
 
 void connection_cb(uv_stream_t * server, int status) {
@@ -286,14 +298,32 @@ void connection_cb(uv_stream_t * server, int status) {
     }
 }
 
-int main(int argc, char *argv[]) {
+void on_uv_close(uv_handle_t* handle) {
+    if (handle != NULL) {
+        SAS_FREE(handle);
+    }
+}
 
+
+void on_uv_walk(uv_handle_t * handle, void * arg) {
+    uv_close(handle, on_uv_close);
+}
+
+void on_sigint_received(uv_signal_t * handle, int signum) {
+    int res = uv_loop_close(handle->loop);
+    if (res == UV_EBUSY) { 
+        uv_walk(handle->loop, on_uv_walk, NULL);
+    }
+}
+
+int main(int argc, char *argv[]) {
+    int i;
     int arg_count = 1;
     for (; arg_count < argc; ++arg_count){
         switch(argv[arg_count][1]) {
             case 'd':
                 {
-                    daemonize("/tmp/serverclient.lock");
+                    daemonize("/run/serverclient.pid");
                     break;
                 }
             case 'v':
@@ -301,11 +331,24 @@ int main(int argc, char *argv[]) {
                     v_mode = true;
                     break;
                 }
+            default:
+                {
+                    i = 0;
+                    while(usage_strings[i] != NULL) {
+                        printf(usage_strings[i]);
+                        i++;
+                    }
+                    break;
+                }
         }
     }
 
-    uv_mutex_init(&mutex);
     loop = uv_default_loop();
+
+    //struct uv_signal_t *sigint = calloc(1, sizeof(uv_signal_t));
+    //uv_signal_init(loop, sigint);
+    //uv_signal_start(sigint, on_sigint_received, SIGINT);
+
     struct sockaddr_in addr;
     uv_ip4_addr("127.0.0.1", 7000, &addr);
     uv_tcp_init(loop, &server);
@@ -315,8 +358,6 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Error on listening: %s\n", uv_strerror(r));
         return r;
     }
-    uv_run(loop, UV_RUN_DEFAULT);
-    uv_mutex_destroy(&mutex);
-    return 0;
+    return uv_run(loop, UV_RUN_DEFAULT);
 }
 

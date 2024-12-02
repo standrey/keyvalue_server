@@ -242,8 +242,7 @@ void sender_queue_runner(uv_work_t *work_request) {
 
     while (container.size() || !work_finished) {
         bool result_ready = container.pop(data_ptr);
-        if (!result_ready)
-        {
+        if (!result_ready) {
             std::this_thread::yield();
             return;
         }
@@ -270,31 +269,25 @@ void on_connect(uv_connect_t * connection, int status) {
 	uv_read_start(tcp, alloc_buffer, on_response_callback);
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char *argv[]) {
     int c;
-  int ok;
 
   json_input_file = "./resources/requests.json";
   fbs_request_file = "./resources/request.fbs";
   fbs_reply_file = "./resources/reply.fbs";
   
-  for(c = 0; ok && c < argc; ++c)
-  {
-    if (argv[c][0] == '-')
-    {
+  for(c = 0; c < argc; ++c) {
+    if (argv[c][0] == '-') {
       int parse_error = 0;
-      if (!strcmp(argv[c], "--json_commands") && c + 1 < argc)
-      {
+      if (!strcmp(argv[c], "--json_commands") && c + 1 < argc) {
         argv[c] = NULL;
         json_input_file = argv[++c];
       } 
-      else if (!strcmp(argv[c], "--fbs_request") && c + 1 < argc)
-      {
+      else if (!strcmp(argv[c], "--fbs_request") && c + 1 < argc) {
         argv[c] = NULL;
         fbs_request_file = argv[++c];
       }
-      else if (!strcmp(argv[c], "--fbs_reply") && c + 1 < argc)
-      {
+      else if (!strcmp(argv[c], "--fbs_reply") && c + 1 < argc) {
         argv[c] = NULL;
         fbs_reply_file = argv[++c];
       }
@@ -318,6 +311,13 @@ int main(int argc, char **argv) {
     Help();
     return EXIT_FAILURE;
   }
+
+    
+    #ifdef SAS_DEBUG
+    printf("Json command file [%s]\n", json_input_file.data());
+    printf("FBS reply file [%s]\n", fbs_reply_file.data());
+    printf("FBS request file [%s]\n", fbs_request_file.data());
+    #endif
 
     uv_tcp_t* socket = (uv_tcp_t*)malloc(sizeof(uv_tcp_t));
     uv_tcp_init(uv_default_loop(), socket);

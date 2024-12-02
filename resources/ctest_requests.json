@@ -1,0 +1,3 @@
+{"operation":"set","member":{"key":"k0","value":"v0"}}
+{"operation":"set","member":{"key":"k1","value":"v2"}}
+{"operation":"shutdown"}
