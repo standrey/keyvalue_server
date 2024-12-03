@@ -17,7 +17,6 @@ const char * usage_strings[] = {
 };
 
 uv_mutex_t mutex;
-static uv_loop_t * loop;
 static uv_tcp_t server;
 
 std::map<uv_stream_t*, halfreaded> streams;
@@ -232,7 +231,7 @@ transport_data * read_next_flatbuffer(uv_stream_t * stream, ssize_t & sz, const 
     data->handle = (uv_stream_t *) stream;
     data->r_buffer_size = msg.message_size;
 
-    msg.message_buffer = NULL;
+    SAS_FREE(msg.message_buffer);
     msg.message_size = 0;
     msg.message_size_readed_bytes = 0;
     msg.message_tail_sz = 0;
@@ -240,10 +239,16 @@ transport_data * read_next_flatbuffer(uv_stream_t * stream, ssize_t & sz, const 
     return data;
 }
 
+void shutdown_streams() {
+    for(auto & [key, value] : streams) {
+        free(value.message_buffer);
+    }
+    streams.clear();
+}
+
 void read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t *buf) {
     if (nread < 0) {
-        if (nread != UV_EOF)
-        {
+        if (nread != UV_EOF) {
             fprintf(stderr, "read error:%s\n", uv_strerror(nread));
         }
 
@@ -260,9 +265,9 @@ void read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t *buf) {
     }
 
     ssize_t readed_bytes = 0;
-    static int uid = 0;
     transport_data * request_data = NULL;
     bool isShutdownCommand = false;
+
     while (request_data = read_next_flatbuffer(stream, readed_bytes, nread, buf->base)) {
         isShutdownCommand = process_command(request_data);
         if (v_mode) {
@@ -280,6 +285,12 @@ void read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t *buf) {
 
     free(buf->base);
     uv_close((uv_handle_t*)stream, on_close_free);
+
+    if (isShutdownCommand) {
+        shutdown_streams();
+        uv_close((uv_handle_t*)&server, NULL);
+        uv_loop_close(uv_default_loop());
+    }
 }
 
 void connection_cb(uv_stream_t * server, int status) {
@@ -289,7 +300,11 @@ void connection_cb(uv_stream_t * server, int status) {
     }
 
     uv_tcp_t * client = (uv_tcp_t *)calloc(1, sizeof(uv_tcp_t));
-    uv_tcp_init(loop, client);
+    status = uv_tcp_init(uv_default_loop(), client);
+    if (status < 0) {
+        fprintf(stderr, "can't call uv_tcp_init with error [%s]\n", uv_strerror(status));
+        return;
+    }
 
     if (uv_accept(server, (uv_stream_t *) client) == 0) {
         uv_read_start((uv_stream_t *) client, alloc_buffer, read_cb);
@@ -343,21 +358,20 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    loop = uv_default_loop();
-
     //struct uv_signal_t *sigint = calloc(1, sizeof(uv_signal_t));
     //uv_signal_init(loop, sigint);
     //uv_signal_start(sigint, on_sigint_received, SIGINT);
 
     struct sockaddr_in addr;
     uv_ip4_addr("127.0.0.1", 7000, &addr);
-    uv_tcp_init(loop, &server);
+    uv_tcp_init(uv_default_loop(), &server);
     uv_tcp_bind(&server, (struct sockaddr *)&addr, 0);
     int r = uv_listen((uv_stream_t *) &server, 128, connection_cb);
     if (r) {
         fprintf(stderr, "Error on listening: %s\n", uv_strerror(r));
         return r;
     }
-    return uv_run(loop, UV_RUN_DEFAULT);
+    return uv_run(uv_default_loop(), UV_RUN_DEFAULT);
 }
+
 
