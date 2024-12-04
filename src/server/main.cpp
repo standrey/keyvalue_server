@@ -21,7 +21,7 @@ static uv_tcp_t server;
 
 std::map<uv_stream_t*, halfreaded> streams;
 
-extern int daemonize(const char *);
+extern int daemonize();
 
 struct threadsafe_hashtable {
     struct ht * table = NULL;
@@ -338,7 +338,7 @@ int main(int argc, char *argv[]) {
         switch(argv[arg_count][1]) {
             case 'd':
                 {
-                    daemonize("/run/serverclient.pid");
+                    daemonize();
                     break;
                 }
             case 'v':

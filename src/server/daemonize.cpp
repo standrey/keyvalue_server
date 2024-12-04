@@ -12,6 +12,27 @@
 int daemon_pid;
 char * lock_path;
 
+void lockpid() {
+    int fd;
+    int len;
+    int sent;
+    char sz[20];
+                fd = open(lock_path, O_TRUNC | O_RDWR | O_CREAT, 0640);
+                if (fd < 0) {
+                    fprintf(stderr, "unable to create lock file %s, error code %d, error string %s\n", lock_path, errno, strerror(errno));
+                    exit(EXIT_FAILURE);
+                } else  {
+                    len = sprintf(sz, "%u", daemon_pid);
+                    sent = write(fd, sz, len);
+                    if (sent != len) {
+                        fprintf(stderr, "unable write pid to lock %s, error code %d, string error %s\n", lock_path, errno, strerror(errno));
+                        exit(EXIT_FAILURE);
+                    }
+                }
+                close(fd);
+                exit(sent == len);
+}
+
 static void child_handler (int signum) {
     int fd;
     int len;
@@ -27,7 +48,7 @@ static void child_handler (int signum) {
 
         case SIGUSR1:
             {
-                fd= open(lock_path, O_TRUNC | O_RDWR | O_CREAT, 0640);
+                fd = open(lock_path, O_TRUNC | O_RDWR | O_CREAT, 0640);
                 if (fd < 0) {
                     fprintf(stderr, "unable to create lock file %s, error code %d, error string %s\n", lock_path, errno, strerror(errno));
                     exit(EXIT_FAILURE);
@@ -45,7 +66,7 @@ static void child_handler (int signum) {
             }
         case SIGCHLD:
             {
-                exit(EXIT_FAILURE);
+                exit(EXIT_SUCCESS);
                 break;
             }
         }
@@ -63,15 +84,15 @@ static void daemon_closing(int sigact) {
 }
 
 
-int daemonize(const char* lockpath){
+int daemonize(){
+    const char * lockpath = "/tmp/lock.pid";
     pid_t sid, parent;
     int fd;
     char buf[10];
     int n, ret;
     struct sigaction act;
 
-    if (getpid() == 1)
-    {
+    if (getpid() == 1) {
         return 1;
     }
 
@@ -104,9 +125,7 @@ int daemonize(const char* lockpath){
         signal(n, SIG_DFL);
     }
 
-    signal(SIGCHLD, child_handler);
     signal(SIGUSR1, child_handler);
-    signal(SIGALRM, child_handler);
     
     daemon_pid = fork();
     if (daemon_pid < 0) {
@@ -115,8 +134,6 @@ int daemonize(const char* lockpath){
     }
 
     if (daemon_pid > 0) {
-        alarm(2);
-        pause();
         exit(EXIT_SUCCESS);
     }
 
@@ -155,7 +172,7 @@ int daemonize(const char* lockpath){
         fprintf(stderr, "unable to freopne stderr, error code %d, error message %s\n", errno, strerror(errno));
     }
 
-    kill(parent, SIGUSR1);
+    lockpid();
 
     act.sa_handler = daemon_closing;
     sigemptyset(&act.sa_mask);
