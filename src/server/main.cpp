@@ -68,20 +68,35 @@ void on_close_free(uv_handle_t* handle) {
     free(handle);
 }
 
-void send_command_back(transport_data * tr_data) {
-    uv_buf_t buf = uv_buf_init(tr_data->r_buffer, tr_data->r_buffer_size);
-    uv_write_t * write_req = (uv_write_t *)calloc(1, sizeof(uv_write_t));
-    write_req->data = tr_data;
-
-    int res = uv_write(write_req, (uv_stream_t *)tr_data->handle, &buf, 1, on_write_end);
-    if (res) {
-      fprintf(stderr, "error on sending data: %s\n" , uv_err_name(res));
-      close_transport_data(tr_data, true);
-      return;  
+void shutdown_streams() {
+    for(auto & [key, value] : streams) {
+        free(value.message_buffer);
     }
+    streams.clear();
 }
 
-bool process_command(transport_data * data) {
+void shutdown(uv_work_t * work ){
+    shutdown_streams();
+    uv_close((uv_handle_t*)&server, NULL);
+    uv_loop_close(uv_default_loop());
+}
+
+void send_command_back(uv_work_t * work, int status) {
+    transport_data * data = (transport_data*)work->data;
+    uv_buf_t buf = uv_buf_init(data->r_buffer, data->r_buffer_size);
+    uv_write_t * write_req = (uv_write_t *)calloc(1, sizeof(uv_write_t));
+    write_req->data = data;
+
+    int res = uv_write(write_req, (uv_stream_t *)data->handle, &buf, 1, on_write_end);
+    if (res) {
+      fprintf(stderr, "error on sending data: %s\n" , uv_err_name(res));
+      close_transport_data(data, true);
+    }
+    free(data);
+}
+
+void process_command(uv_work_t * work) {
+    transport_data * data = (transport_data *)work->data;
     bool isShutdownCommand = false;
     static flatbuffers::FlatBufferBuilder builder(512);
 
@@ -94,7 +109,7 @@ bool process_command(transport_data * data) {
     if (!request) {
         free(data->r_buffer), data->r_buffer = NULL;
         if (v_mode) printf("\tReceived flatbuffer is empty or null\n");
-        return isShutdownCommand;
+        return;
     }
 
     ++total_req;
@@ -168,7 +183,9 @@ bool process_command(transport_data * data) {
 
     builder.Clear();
 
-    return isShutdownCommand;
+    if (isShutdownCommand) {
+        uv_queue_work(uv_default_loop(), NULL, shutdown, NULL);
+    }
 }
 
 transport_data * read_next_flatbuffer(uv_stream_t * stream, ssize_t & sz, const ssize_t nread, const char *base) {
@@ -239,12 +256,6 @@ transport_data * read_next_flatbuffer(uv_stream_t * stream, ssize_t & sz, const 
     return data;
 }
 
-void shutdown_streams() {
-    for(auto & [key, value] : streams) {
-        free(value.message_buffer);
-    }
-    streams.clear();
-}
 
 void read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t *buf) {
     if (nread < 0) {
@@ -266,31 +277,30 @@ void read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t *buf) {
 
     ssize_t readed_bytes = 0;
     transport_data * request_data = NULL;
-    bool isShutdownCommand = false;
 
-    while (request_data = read_next_flatbuffer(stream, readed_bytes, nread, buf->base)) {
-        isShutdownCommand = process_command(request_data);
-        if (v_mode) {
-            printf("\tRequest buffer transport size %ld\n", request_data->r_buffer_size);
-        }
+    while ((request_data = read_next_flatbuffer(stream, readed_bytes, nread, buf->base))) {
 
-        send_command_back(request_data);
-        if (isShutdownCommand) {
-            if (v_mode) {
-                printf("\tSuccessfully terminated.\n");
-            }
-            break;
-        }
+        uv_work_t * work = (uv_work_t *)calloc(1, sizeof(uv_work_t));
+        work->data = (void *)request_data;
+
+        uv_queue_work(uv_default_loop(), work, process_command, send_command_back);
+
+        //isShutdownCommand = process_command(request_data);
+        //if (v_mode) {
+        //    printf("\tRequest buffer transport size %ld\n", request_data->r_buffer_size);
+        //}
+
+        //send_command_back(request_data);
+        //if (isShutdownCommand) {
+        //    if (v_mode) {
+        //        printf("\tSuccessfully terminated.\n");
+        //    }
+        //    break;
+        //}
     }
 
     free(buf->base);
     uv_close((uv_handle_t*)stream, on_close_free);
-
-    if (isShutdownCommand) {
-        shutdown_streams();
-        uv_close((uv_handle_t*)&server, NULL);
-        uv_loop_close(uv_default_loop());
-    }
 }
 
 void connection_cb(uv_stream_t * server, int status) {
