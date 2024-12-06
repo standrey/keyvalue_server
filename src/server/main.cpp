@@ -18,6 +18,7 @@ const char * usage_strings[] = {
 
 uv_mutex_t mutex;
 static uv_tcp_t server;
+static uv_async_t async_shutdown_signal;
 
 std::map<uv_stream_t*, halfreaded> streams;
 
@@ -75,30 +76,53 @@ void shutdown_streams() {
     streams.clear();
 }
 
-void shutdown(uv_work_t * work ){
+void shutdown(){
     shutdown_streams();
     uv_close((uv_handle_t*)&server, NULL);
     uv_loop_close(uv_default_loop());
+}
+
+
+void on_server_write_end(uv_write_t* req, int status)
+{
+    if (req)
+    {
+        uv_work_t * work = (uv_work_t*)req->data;
+        transport_data* tr_data = (transport_data*)work->data;
+        if (status < 0)
+        {
+            fprintf(stderr, "-SAS- can't send portion of data with error '%s'", uv_strerror(status));
+        }
+        close_transport_data(tr_data, status < 0); 
+        free(work);
+    }
+
+    SAS_FREE(req);
+
+    if (status < 0)
+    {
+        fprintf(stderr, "-SAS- Error on on_write_end callback: %s\n", uv_err_name(status)); 
+    }
 }
 
 void send_command_back(uv_work_t * work, int status) {
     transport_data * data = (transport_data*)work->data;
     uv_buf_t buf = uv_buf_init(data->r_buffer, data->r_buffer_size);
     uv_write_t * write_req = (uv_write_t *)calloc(1, sizeof(uv_write_t));
-    write_req->data = data;
+    write_req->data = work;
 
-    int res = uv_write(write_req, (uv_stream_t *)data->handle, &buf, 1, on_write_end);
+    int res = uv_write(write_req, (uv_stream_t *)data->handle, &buf, 1, on_server_write_end);
     if (res) {
-      fprintf(stderr, "error on sending data: %s\n" , uv_err_name(res));
+      fprintf(stderr, "could not send data back to the client: [%s]\n" , uv_strerror(res));
       close_transport_data(data, true);
     }
-    free(data);
+    //uv_close((uv_handle_t*)stream, on_close_free);
 }
 
 void process_command(uv_work_t * work) {
     transport_data * data = (transport_data *)work->data;
     bool isShutdownCommand = false;
-    static flatbuffers::FlatBufferBuilder builder(512);
+    flatbuffers::FlatBufferBuilder builder(512);
 
     static long total_req = 0;
     static long set_req = 0;
@@ -184,9 +208,14 @@ void process_command(uv_work_t * work) {
     builder.Clear();
 
     if (isShutdownCommand) {
-        uv_queue_work(uv_default_loop(), NULL, shutdown, NULL);
+        uv_async_send(&async_shutdown_signal);
     }
 }
+
+void shutdown_signal_handler(uv_async_t * unused) {
+    shutdown();
+}
+
 
 transport_data * read_next_flatbuffer(uv_stream_t * stream, ssize_t & sz, const ssize_t nread, const char *base) {
     if (streams.find(stream) == streams.end()) {
@@ -276,31 +305,19 @@ void read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t *buf) {
     }
 
     ssize_t readed_bytes = 0;
-    transport_data * request_data = NULL;
-
-    while ((request_data = read_next_flatbuffer(stream, readed_bytes, nread, buf->base))) {
-
-        uv_work_t * work = (uv_work_t *)calloc(1, sizeof(uv_work_t));
-        work->data = (void *)request_data;
-
-        uv_queue_work(uv_default_loop(), work, process_command, send_command_back);
-
-        //isShutdownCommand = process_command(request_data);
-        //if (v_mode) {
-        //    printf("\tRequest buffer transport size %ld\n", request_data->r_buffer_size);
-        //}
-
-        //send_command_back(request_data);
-        //if (isShutdownCommand) {
-        //    if (v_mode) {
-        //        printf("\tSuccessfully terminated.\n");
-        //    }
-        //    break;
-        //}
+    for(;;)
+    {
+        transport_data * request_data = read_next_flatbuffer(stream, readed_bytes, nread, buf->base);
+        if (request_data != NULL) {
+            uv_work_t * work = (uv_work_t *)calloc(1, sizeof(uv_work_t));
+            work->data = (void *)request_data;
+            uv_queue_work(uv_default_loop(), work, process_command, send_command_back);
+        } else {
+            break;
+        }
     }
 
     free(buf->base);
-    uv_close((uv_handle_t*)stream, on_close_free);
 }
 
 void connection_cb(uv_stream_t * server, int status) {
@@ -376,6 +393,8 @@ int main(int argc, char *argv[]) {
     uv_ip4_addr("127.0.0.1", 7000, &addr);
     uv_tcp_init(uv_default_loop(), &server);
     uv_tcp_bind(&server, (struct sockaddr *)&addr, 0);
+
+    uv_async_init(uv_default_loop(), &async_shutdown_signal, shutdown_signal_handler);
     int r = uv_listen((uv_stream_t *) &server, 128, connection_cb);
     if (r) {
         fprintf(stderr, "Error on listening: %s\n", uv_strerror(r));

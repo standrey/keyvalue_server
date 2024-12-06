@@ -68,7 +68,7 @@ void process_command(transport_data * tr_data) {
         return;
     }
 
-    printf("\n[Reply] %d %s\n", reply->code(), reply->value()->c_str());
+    printf("\n[Reply] code [%d] string [%s]\n", reply->code(), reply->value()->c_str());
 }
 
 transport_data * read_next_flatbuffer(uv_stream_t * stream, ssize_t & sz, const ssize_t nread, const char *base) {
