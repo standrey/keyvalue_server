@@ -1,8 +1,6 @@
 // hashtable implementation
 #include "hashtable.h"
 
-#include <map>
-
 // flatbuffers
 #include "request_generated.h"
 #include "reply_generated.h"
@@ -16,12 +14,12 @@ const char * usage_strings[] = {
     NULL
 };
 
-uv_mutex_t mutex;
 static uv_tcp_t server;
 
-std::map<uv_stream_t*, halfreaded> streams;
-
 extern int daemonize();
+
+#define CLIENT_POOL_SIZE 1024
+halfreaded * client_pool[CLIENT_POOL_SIZE] {NULL}; // assume that  uv_default_loop uses one thread 
 
 struct threadsafe_hashtable {
     struct ht * table = NULL;
@@ -171,13 +169,7 @@ bool process_command(transport_data * data) {
     return isShutdownCommand;
 }
 
-transport_data * read_next_flatbuffer(uv_stream_t * stream, ssize_t & sz, const ssize_t nread, const char *base) {
-    if (streams.find(stream) == streams.end()) {
-        streams[stream] = halfreaded{0, 0, 0, 0};
-    }
-
-    halfreaded & msg = streams[stream];
-
+transport_data * read_next_flatbuffer(halfreaded msg, ssize_t & sz, const ssize_t nread, const char *base, const uv_stream_t * stream) {
     if (sz == nread) {
         return NULL;
     }
@@ -239,28 +231,66 @@ transport_data * read_next_flatbuffer(uv_stream_t * stream, ssize_t & sz, const 
     return data;
 }
 
-void shutdown_streams() {
-    for(auto & [key, value] : streams) {
-        free(value.message_buffer);
+
+halfreaded * get_client_by_stream(uv_stream_t * stream) {
+    if (stream == NULL) {
+        return NULL;
     }
-    streams.clear();
+
+    size_t first_free_index = -1;
+    for (size_t i = 0 ; i < CLIENT_POOL_SIZE; ++i) {
+        if (client_pool[i] != NULL && client_pool[i]->handle == stream) {
+            return client_pool[i];
+        }
+        if (first_free_index == -1 && client_pool[i] == NULL) {
+            first_free_index = i; 
+        }
+    }
+
+    if (first_free_index == -1) {
+        return NULL;
+    }
+
+    client_pool[first_free_index] = (halfreaded *)calloc(1, sizeof(halfreaded));
+    client_pool[first_free_index]->handle = stream;
+    return client_pool[first_free_index];
+}
+
+void free_client_by_stream(uv_stream_t * stream) {
+    if (stream == NULL) {
+        return;
+    }
+    for (size_t i = 0 ; i < CLIENT_POOL_SIZE; ++i) {
+        if (client_pool[i] != NULL && client_pool[i]->handle == stream) {
+            free(client_pool[i]);
+            client_pool[i] = NULL;
+        }
+    }
+}
+
+void close_stream(uv_stream_t * stream, const uv_buf_t *buf) {
+    uv_close((uv_handle_t*)stream, on_close_free);
+    if (buf->base){
+        free((void*)buf->base);
+    }
+}
+
+void close_all_client_streams() {
+    for (size_t i = 0 ; i < CLIENT_POOL_SIZE; ++i) {
+        if (client_pool[i] != NULL) {
+            free(client_pool[i]);
+            client_pool[i] = NULL;
+        }
+    }
 }
 
 void read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t *buf) {
-    if (nread < 0) {
+    if (nread <= 0) {
         if (nread != UV_EOF) {
             fprintf(stderr, "read error:%s\n", uv_strerror(nread));
         }
-
-        if (streams.find(stream) != streams.end()) {
-            free(streams[stream].message_buffer);
-            streams.erase(stream);
-        }
-        uv_close((uv_handle_t*)stream, on_close_free);
-        free(buf->base);
-        return;
-    } else if (nread == 0) {
-        free(buf->base);
+        free_client_by_stream(stream);
+        close_stream(stream, buf);
         return;
     }
 
@@ -268,7 +298,14 @@ void read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t *buf) {
     transport_data * request_data = NULL;
     bool isShutdownCommand = false;
 
-    while (request_data = read_next_flatbuffer(stream, readed_bytes, nread, buf->base)) {
+    halfreaded * read_transport = get_client_by_stream(stream);
+    if (!read_transport) {
+        free_client_by_stream(stream);
+        close_stream(stream, buf);
+    }
+
+    request_data = read_next_flatbuffer(*read_transport, readed_bytes, nread, buf->base, stream);
+    if (request_data) {
         isShutdownCommand = process_command(request_data);
         if (v_mode) {
             printf("\tRequest buffer transport size %ld\n", request_data->r_buffer_size);
@@ -279,17 +316,15 @@ void read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t *buf) {
             if (v_mode) {
                 printf("\tSuccessfully terminated.\n");
             }
-            break;
         }
+        /*close_stream(stream, buf);*/
     }
 
-    free(buf->base);
-    uv_close((uv_handle_t*)stream, on_close_free);
-
     if (isShutdownCommand) {
-        shutdown_streams();
         uv_close((uv_handle_t*)&server, NULL);
         uv_loop_close(uv_default_loop());
+        close_all_client_streams();
+        close_stream(stream, buf);
     }
 }
 

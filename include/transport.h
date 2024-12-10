@@ -8,6 +8,7 @@
 #include <uv.h>
 
 struct halfreaded {
+    uv_stream_t * handle = NULL;
 	char * message_buffer = NULL;
 	unsigned int message_size = 0;
 	int message_size_readed_bytes = 0;
@@ -23,15 +24,12 @@ struct transport_data {
     uv_stream_t * handle = nullptr;
 };
 
-void close_transport_data(transport_data * tr_data, bool close_handle)
-{
-    if (tr_data== NULL)
-    {
+void close_transport_data(transport_data * tr_data, bool close_handle) {
+    if (tr_data== NULL) {
         return;
     }
     
-    if (close_handle && tr_data->handle)
-    {
+    if (close_handle && tr_data->handle) {
         uv_close((uv_handle_t*)tr_data->handle, [](uv_handle_t* handle) { SAS_FREE(handle); });
     }
 
@@ -40,13 +38,10 @@ void close_transport_data(transport_data * tr_data, bool close_handle)
     SAS_FREE(tr_data);
 }
 
-void on_write_end(uv_write_t* req, int status)
-{
-    if (req)
-    {
+void on_write_end(uv_write_t* req, int status) {
+    if (req) {
         transport_data* tr_data = (transport_data*)req->data;
-        if (status < 0)
-        {
+        if (status < 0) {
             fprintf(stderr, "-SAS- can't send portion of data with error '%s'", uv_strerror(status));
         }
         close_transport_data(tr_data, status < 0); 
@@ -54,8 +49,7 @@ void on_write_end(uv_write_t* req, int status)
 
     SAS_FREE(req);
 
-    if (status < 0)
-    {
+    if (status < 0) {
         fprintf(stderr, "-SAS- Error on on_write_end callback: %s\n", uv_err_name(status)); 
     }
 }
