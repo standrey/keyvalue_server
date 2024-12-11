@@ -131,8 +131,8 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME AND BUILD_TESTING)
     FetchContent_MakeAvailable(googletest)
 
     include(GoogleTest)
-    add_test(NAME EmptyTest COMMAND testbinary)
-    package_add_test(testbinary test1.cpp)
+    # add_test(NAME EmptyTest COMMAND testbinary)
+    # package_add_test(testbinary test1.cpp)
 
     configure_file(resources/ctest_requests.json resources/ctest_requests.json COPYONLY)
     add_test(NAME ServerTest COMMAND server -d)

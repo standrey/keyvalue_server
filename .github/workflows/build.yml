@@ -1,0 +1,19 @@
+name: C++ CI on github
+
+on: [push]
+
+jobs:
+  build-on-push:
+
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v1
+    - name: Configure
+      run: |
+        cmake -E remove_directory build
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug
+    - name: build 
+      run: cmake --build build
+    - name: test
+      run: cd build && ctest --output-on-failure
