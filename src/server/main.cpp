@@ -10,7 +10,6 @@
 static bool v_mode = false;
 const char * usage_strings[] = {
     "  -d Daemonize",
-    "  -v Verbose mode",
     NULL
 };
 
@@ -91,20 +90,21 @@ bool process_command(transport_data * data) {
     auto request = Homework::GetRequest(data->r_buffer);
     if (!request) {
         free(data->r_buffer), data->r_buffer = NULL;
-        if (v_mode) printf("\tReceived flatbuffer is empty or null\n");
+        debug("received flatbuffer is empty or null");
         return isShutdownCommand;
     }
 
     ++total_req;
     const char *operation = request->operation()->c_str();
-    if (v_mode) printf("\tprocess_command [%s] %s->%s\n", operation, request->member()->key()->c_str(), request->member()->value()->c_str());
-    if (v_mode) printf("\tRequest buffer transport size %ld\n", data->r_buffer_size);
+
+    if (request->member()) {
+        debug("process_command [%s] %s->%s\n", operation, request->member()->key()->c_str(), request->member()->value()->c_str());
+    } else {
+        debug("process_command [%s]\n", operation);
+    }
 
     if (strcmp(operation,"get")==0) {
-        char *str = NULL;
-        {
-            str = main_data.get(request->member()->key()->c_str());
-        }
+        char *str = main_data.get(request->member()->key()->c_str());
 
         if (str) {
             ++get_hit_req;
@@ -248,9 +248,11 @@ halfreaded * get_client_by_stream(uv_stream_t * stream) {
     }
 
     if (first_free_index == -1) {
+        debug("could not allocate new client cell");
         return NULL;
     }
 
+    debug("new client cell allocation");    
     client_pool[first_free_index] = (halfreaded *)calloc(1, sizeof(halfreaded));
     client_pool[first_free_index]->handle = stream;
     return client_pool[first_free_index];
@@ -270,9 +272,6 @@ void free_client_by_stream(uv_stream_t * stream) {
 
 void close_stream(uv_stream_t * stream, const uv_buf_t *buf) {
     uv_close((uv_handle_t*)stream, on_close_free);
-    if (buf->base){
-        free((void*)buf->base);
-    }
 }
 
 void close_all_client_streams() {
@@ -287,44 +286,42 @@ void close_all_client_streams() {
 void read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t *buf) {
     if (nread <= 0) {
         if (nread != UV_EOF) {
-            fprintf(stderr, "read error:%s\n", uv_strerror(nread));
+            fail("read error: %s", uv_strerror(nread));
         }
         free_client_by_stream(stream);
         close_stream(stream, buf);
         return;
     }
 
-    ssize_t readed_bytes = 0;
+    ssize_t processed_bytes = 0;
     transport_data * request_data = NULL;
     bool isShutdownCommand = false;
 
     halfreaded * read_transport = get_client_by_stream(stream);
     if (!read_transport) {
         free_client_by_stream(stream);
-        close_stream(stream, buf);
+        uv_close((uv_handle_t*)stream, on_close_free);
+        if (buf->base) free((void*)buf->base);
+        fail("can't read data from the client");
     }
 
-    request_data = read_next_flatbuffer(*read_transport, readed_bytes, nread, buf->base, stream);
-    if (request_data) {
+    do {
+        request_data = read_next_flatbuffer(*read_transport, processed_bytes, nread, buf->base, stream);
         isShutdownCommand = process_command(request_data);
-        if (v_mode) {
-            printf("\tRequest buffer transport size %ld\n", request_data->r_buffer_size);
-        }
-
+        debug("request buffer transport size %ld", request_data->r_buffer_size);
         send_command_back(request_data);
-        if (isShutdownCommand) {
-            if (v_mode) {
-                printf("\tSuccessfully terminated.\n");
-            }
-        }
-        /*close_stream(stream, buf);*/
-    }
+    } while (request_data != NULL && !isShutdownCommand && processed_bytes<nread);
+
+    debug("all the commands have been processed");
+
+    uv_close((uv_handle_t*)stream, on_close_free);
+    if (buf->base) free((void*)buf->base);
 
     if (isShutdownCommand) {
+        debug("shutting down");
+        close_all_client_streams();
         uv_close((uv_handle_t*)&server, NULL);
         uv_loop_close(uv_default_loop());
-        close_all_client_streams();
-        close_stream(stream, buf);
     }
 }
 
@@ -374,11 +371,6 @@ int main(int argc, char *argv[]) {
             case 'd':
                 {
                     daemonize();
-                    break;
-                }
-            case 'v':
-                {
-                    v_mode = true;
                     break;
                 }
             default:

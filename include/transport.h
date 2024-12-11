@@ -7,6 +7,14 @@
 // libuv
 #include <uv.h>
 
+#define fail(...) do { fprintf(stderr, __VA_ARGS__); exit(EXIT_FAILURE); } while (0)
+
+#ifdef SAS_DEBUG
+#define debug(...) fprintf(stdout, __VA_ARGS__); fprintf(stdout, "\n")
+#else 
+#define debug(...) 
+#endif
+
 struct halfreaded {
     uv_stream_t * handle = NULL;
 	char * message_buffer = NULL;
