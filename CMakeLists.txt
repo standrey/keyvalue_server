@@ -21,27 +21,27 @@ if(GIT_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
   endif()
 endif()
 
-if(NOT EXISTS "${PROJECT_SOURCE_DIR}/extern/libuv/CMakeLists.txt")
-  message(FATAL "The submodules were not downloaded! git submodule was turned off or failed.")
+if(NOT EXISTS "${PROJECT_SOURCE_DIR}/extern/libuv/CMakeLists.txt" OR NOT EXISTS "${PROJECT_SOURCE_DIR}/extern/flatbuffers/CMakeLists.txt")
+    message(FATAL "The submodules were not downloaded! git submodule was turned off or failed.")
 endif()
 
-
-add_subdirectory(extern/flatbuffers)
-add_subdirectory(extern/libuv)
+add_subdirectory(extern/flatbuffers EXCLUDE_FROM_ALL)
+add_subdirectory(extern/libuv EXCLUDE_FROM_ALL)
 add_subdirectory(extern/boost EXCLUDE_FROM_ALL)
-# add_subdirectory(flatbuffers ${CMAKE_CURRENT_BINARY_DIR}/extern/flatbuffer-build EXCLUDE_FROM_ALL)
-#add_subdirectory(libuv ${CMAKE_CURRENT_BINARY_DIR}/extern/libuv-build EXCLUDE_FROM_ALL)
-
 
 flatbuffers_generate_headers(
-TARGET FlatBuffersGeneratedHeaders
-SCHEMAS resources/reply.fbs;resources/request.fbs
+    TARGET FlatBuffersGeneratedHeaders
+    SCHEMAS resources/reply.fbs;resources/request.fbs
 )
 
-add_executable(client_async src/client_async/main.cpp)
+add_executable(client_async
+    src/client_async/main.cpp
+)
 target_include_directories(client_async PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffersGeneratedHeaders)
 
-add_executable(client src/client/main.cpp)
+add_executable(client 
+    src/client/main.cpp
+)
 target_include_directories(client PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffersGeneratedHeaders)
 
 add_executable(server 
@@ -51,7 +51,7 @@ add_executable(server
 )
 target_include_directories(server PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffersGeneratedHeaders)
 
-target_link_libraries(client_async PRIVATE flatbuffers uv_a Boost::system)
+target_link_libraries(client_async PRIVATE flatbuffers uv_a Boost::system Boost::asio)
 target_link_libraries(client PRIVATE flatbuffers uv_a)
 target_link_libraries(server PRIVATE flatbuffers uv_a)
 
@@ -62,21 +62,7 @@ target_compile_options(client PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
 target_compile_options(client_async PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
 target_compile_options(server PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
 
-function(PrintTargetLibraries target msg)
-  get_target_property(linkedLibs ${target} LINK_LIBRARIES)
-  get_target_property(interfaceLibs ${target} INTERFACE_LINK_LIBRARIES)
-  message(STATUS "${msg}")
-  message(STATUS "${target} LINK_LIBRARIES: ${linkedLibs}")
-  message(STATUS "${target} INTERFACE_LINK_LIBRARIES: ${interfaceLibs}")
-endfunction()
-
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_VERBOSE_MAKEFILE ON)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++20")
-
-PrintTargetLibraries(client "Before linking:")
+target_compile_features(client_async PRIVATE cxx_std_20)
 
 # compiler options / macro hints
 if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
@@ -98,8 +84,6 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES GNU)
         stdc++
     )
 endif()
-
-PrintTargetLibraries(client "After linking")
 
 configure_file(resources/request.fbs resources/request.fbs COPYONLY)
 configure_file(resources/reply.fbs resources/reply.fbs COPYONLY)
