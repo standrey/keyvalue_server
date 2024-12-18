@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.29)
-project(serverclient LANGUAGES CXX)
+project(serverclient 
+    VERSION 1.0.0
+    LANGUAGES CXX)
 
 # To make neovim happy about headers that end up in build directory
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -25,9 +27,11 @@ if(NOT EXISTS "${PROJECT_SOURCE_DIR}/extern/libuv/CMakeLists.txt" OR NOT EXISTS 
     message(FATAL "The submodules were not downloaded! git submodule was turned off or failed.")
 endif()
 
+set(FLATBUFFERS_BUILD_TESTS OFF CACHE BOOL "FB tests" FORCE)
 add_subdirectory(extern/flatbuffers EXCLUDE_FROM_ALL)
 add_subdirectory(extern/libuv EXCLUDE_FROM_ALL)
 add_subdirectory(extern/boost EXCLUDE_FROM_ALL)
+
 
 flatbuffers_generate_headers(
     TARGET FlatBuffersGeneratedHeaders
@@ -100,22 +104,20 @@ endmacro()
 
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     include(CTest)
-    message(STATUS "CTest is enabled")
-endif()
+    enable_testing()
 
-if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME AND BUILD_TESTING)
-    include(FetchContent)
-
-    FetchContent_Declare(
-        googletest
-        GIT_REPOSITORY https://github.com/google/googletest.git
-        GIT_TAG v1.15.2
-    )
-
-    FetchContent_MakeAvailable(googletest)
-
-    include(GoogleTest)
-    # add_test(NAME EmptyTest COMMAND testbinary)
+    # include(FetchContent)
+    #
+    # FetchContent_Declare(
+    #     googletest
+    #     GIT_REPOSITORY https://github.com/google/googletest.git
+    #     GIT_TAG v1.15.2
+    # )
+    #
+    # FetchContent_MakeAvailable(googletest)
+    #
+    # include(GoogleTest)
+    # # add_test(NAME EmptyTest COMMAND testbinary)
     # package_add_test(testbinary test1.cpp)
 
     configure_file(resources/ctest_requests.json resources/ctest_requests.json COPYONLY)
