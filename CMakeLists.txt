@@ -51,7 +51,7 @@ add_executable(server
 )
 target_include_directories(server PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffersGeneratedHeaders)
 
-target_link_libraries(client_async PRIVATE flatbuffers uv_a Boost::system Boost::asio)
+target_link_libraries(client_async PRIVATE flatbuffers uv_a Boost::system Boost::asio Boost::endian)
 target_link_libraries(client PRIVATE flatbuffers uv_a)
 target_link_libraries(server PRIVATE flatbuffers uv_a)
 
