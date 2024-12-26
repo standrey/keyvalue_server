@@ -13,6 +13,7 @@
 
 #include "error_codes.h"
 #include "transport.h"
+#include "transport_helpers.h"
 #include "ringbuffer.hpp"
 
 Homework::ringbuffer<transport_data*, 124> container;

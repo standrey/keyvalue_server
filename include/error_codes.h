@@ -1,4 +1,6 @@
-enum class ErrorCodes
+#pragma once
+
+enum ErrorCodes
 {
     SUCCESS = 1,
     INVALID_INPUT,

@@ -1,13 +1,12 @@
 cmake_minimum_required(VERSION 3.29)
 project(serverclient 
     VERSION 1.0.0
-    LANGUAGES CXX)
+    LANGUAGES C CXX)
 
 # To make neovim happy about headers that end up in build directory
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(lib_config.cmake)
-
 
 find_package(Git QUIET)
 if(GIT_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
@@ -32,32 +31,33 @@ add_subdirectory(extern/flatbuffers EXCLUDE_FROM_ALL)
 add_subdirectory(extern/libuv EXCLUDE_FROM_ALL)
 add_subdirectory(extern/boost EXCLUDE_FROM_ALL)
 
-
 flatbuffers_generate_headers(
     TARGET FlatBuffersGeneratedHeaders
     SCHEMAS resources/reply.fbs;resources/request.fbs
 )
 
-add_executable(client_async
-    src/client_async/main.cpp
-)
+add_library(fbwrapper src/server/fbwrapper.cpp)
+target_include_directories(fbwrapper PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffersGeneratedHeaders)
+target_link_libraries(fbwrapper PRIVATE flatbuffers)
+target_compile_features(fbwrapper PRIVATE cxx_std_20)
+
+add_executable(client_async src/client_async/main.cpp)
 target_include_directories(client_async PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffersGeneratedHeaders)
 
-add_executable(client 
-    src/client/main.cpp
-)
+add_executable(client src/client/main.cpp)
 target_include_directories(client PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffersGeneratedHeaders)
 
 add_executable(server 
-    src/server/main.cpp 
-    src/server/daemonize.cpp
-    src/server/hashtable.cpp
+    src/server/main.c
+    src/server/daemonize.c
+    src/server/hashtable.c
 )
-target_include_directories(server PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffersGeneratedHeaders)
+target_include_directories(server PUBLIC include)
 
 target_link_libraries(client_async PRIVATE flatbuffers uv_a Boost::system Boost::asio Boost::endian)
 target_link_libraries(client PRIVATE flatbuffers uv_a)
-target_link_libraries(server PRIVATE flatbuffers uv_a)
+
+target_link_libraries(server PRIVATE uv_a fbwrapper)
 
 target_link_options(client PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
 target_link_options(client_async PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
@@ -66,6 +66,7 @@ target_compile_options(client PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
 target_compile_options(client_async PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
 target_compile_options(server PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
 
+target_compile_features(server PRIVATE c_std_11)
 target_compile_features(client_async PRIVATE cxx_std_20)
 
 # compiler options / macro hints

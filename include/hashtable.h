@@ -2,20 +2,17 @@
 #define HASHTABLE_H
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <inttypes.h>
 #include <assert.h>
 #include <stdbool.h>
 
-
-typedef struct ht_entry{
+struct ht_entry{
     const char * key;
     void * value;
 
 };
 
-typedef struct ht {
+struct ht {
     struct ht_entry * entries;
     size_t capacity;
     size_t length;

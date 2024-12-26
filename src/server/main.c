@@ -1,11 +1,10 @@
 // hashtable implementation
 #include "hashtable.h"
 
-// flatbuffers
-#include "request_generated.h"
-#include "reply_generated.h"
 #include "error_codes.h"
 #include "transport.h"
+#include "transport_helpers.h"
+#include "fbwrapper.h"
 
 static bool v_mode = false;
 const char * usage_strings[] = {
@@ -18,39 +17,8 @@ static uv_tcp_t server;
 extern int daemonize();
 
 #define CLIENT_POOL_SIZE 1024
-halfreaded * client_pool[CLIENT_POOL_SIZE] {NULL}; // assume that  uv_default_loop uses one thread 
-
-struct threadsafe_hashtable {
-    struct ht * table = NULL;
-
-    void set(const char *k, const char *v) {
-        if (table == NULL) {
-            table = ht_make();
-        }
-        ht_set(table, k, strdup(v));
-    }
-
-    bool exists(const char *k) {
-        if (table == NULL) {
-            assert("hash table is not initalized");
-            return false;
-        }
-
-        return ht_get(table, k) != NULL;
-    }
-
-    char* get(const char* k)
-    {
-        if (table == NULL) {
-            return NULL;
-        }
-
-        return (char *)ht_get(table, k);
-    }
-
-};
-
-static threadsafe_hashtable main_data;
+static struct halfreaded * client_pool[CLIENT_POOL_SIZE]; // assume that  uv_default_loop uses one thread 
+static struct ht* main_data;
 
 void alloc_buffer(uv_handle_t * handle, size_t size, uv_buf_t *buf) {
     char *base;
@@ -65,7 +33,7 @@ void on_close_free(uv_handle_t* handle) {
     free(handle);
 }
 
-void send_command_back(transport_data * tr_data) {
+void send_command_back(struct transport_data * tr_data) {
     uv_buf_t buf = uv_buf_init(tr_data->r_buffer, tr_data->r_buffer_size);
     uv_write_t * write_req = (uv_write_t *)calloc(1, sizeof(uv_write_t));
     write_req->data = tr_data;
@@ -78,119 +46,109 @@ void send_command_back(transport_data * tr_data) {
     }
 }
 
-bool process_command(transport_data * data) {
+bool process_command(struct transport_data * data) {
     bool isShutdownCommand = false;
-    static flatbuffers::FlatBufferBuilder builder(512);
 
     static long total_req = 0;
     static long set_req = 0;
     static long get_hit_req = 0;
     static long get_miss_req = 0;
     static long get_bloommiss_req = 0;
-    auto request = Homework::GetRequest(data->r_buffer);
-    if (!request) {
-        free(data->r_buffer), data->r_buffer = NULL;
-        debug("received flatbuffer is empty or null");
-        return isShutdownCommand;
-    }
 
-    ++total_req;
-    const char *operation = request->operation()->c_str();
+    total_req++;
 
-    if (request->member()) {
-        debug("process_command [%s] %s->%s\n", operation, request->member()->key()->c_str(), request->member()->value()->c_str());
-    } else {
-        debug("process_command [%s]\n", operation);
+    char * operation = NULL;
+    char * key = NULL;
+    char * value = NULL;
+
+    size_t fbBufferSize = 0;
+    char * fbBuffer = 0;
+
+    bool fbResult = getFbValues(data, operation, key, value);
+
+    if (!fbResult) {
+        free(data->r_buffer);
+        data->r_buffer = NULL;
+        free(operation);
+        free(key);
+        free(value);
     }
 
     if (strcmp(operation,"get")==0) {
-        char *str = main_data.get(request->member()->key()->c_str());
+        char *str = ht_get(main_data, key);
 
         if (str) {
             ++get_hit_req;
-            auto realdata = builder.CreateString(str);
-            auto reply = Homework::CreateReply(builder, (int32_t)ErrorCodes::SUCCESS, realdata);
-            builder.Finish(reply);
+            setFbValues(ErrorCodes::SUCCESS, "", fbBuffer, fbBufferSize);
         } else {
             ++get_miss_req;
-            auto realdata = builder.CreateString("");
-            auto reply = Homework::CreateReply(builder, (int32_t)ErrorCodes::NOT_FOUND, realdata);
-            builder.Finish(reply);
+            setFbValues(ErrorCodes::NOT_FOUND, "", fbBuffer, fbBufferSize);
         }
-    }
-    else if (strcmp(operation,"set")==0) {
+    } else if (strcmp(operation,"set")==0) {
         bool exists = false;
         ++set_req;
-        exists = main_data.exists(request->member()->key()->c_str());
+        exists = ht_get(main_data, key) != NULL;
 
         if (exists) {
-            auto realdata = builder.CreateString("");
-            auto reply = Homework::CreateReply(builder, (int32_t)ErrorCodes::ALREADY_EXISTS, realdata);
-            builder.Finish(reply);
+            setFbValues(ErrorCodes::ALREADY_EXISTS, "", fbBuffer, fbBufferSize);
         } else {
-            main_data.set(request->member()->key()->c_str(), request->member()->value()->c_str());
-            auto realdata = builder.CreateString("");
-            auto reply = Homework::CreateReply(builder, (int32_t)ErrorCodes::SUCCESS, realdata);
-            builder.Finish(reply);
+            main_data.set(key, value);
+            setFbValues(ErrorCodes::SUCCESS, "", fbBuffer, fbBufferSize);
         }
     }
     else if (strcmp(operation,"stats")==0) {
         char buffer[128];
         snprintf(buffer, sizeof(buffer), "total_req: %ld, set_req: %ld, get_hit_req: %ld, get_miss_req: %ld, bloom_miss_req: %ld", total_req, set_req, get_hit_req, get_miss_req, get_bloommiss_req);
-        auto realdata = builder.CreateString(buffer);
-        auto reply = Homework::CreateReply(builder, (int32_t)ErrorCodes::SUCCESS, realdata);
-        builder.Finish(reply);
+        setFbValues(ErrorCodes::SUCCESS, buffer, fbBuffer, fbBufferSize);
     }
     else if (strcmp(operation, "shutdown") == 0) {
-        char buffer[128];
-        snprintf(buffer, sizeof(buffer), "0");
-        auto realdata = builder.CreateString(buffer);
-        auto reply = Homework::CreateReply(builder, (int32_t)ErrorCodes::SUCCESS, realdata);
-        builder.Finish(reply);
+        setFbValues(ErrorCodes::SUCCESS, "", fbBuffer, fbBufferSize);
         isShutdownCommand = true;
     }
 
-    SAS_FREE(data->r_buffer);
+    free(data->r_buffer);
+    data->r_buffer = NULL;
 
     // malloc data for send buffer
-    int sz = (int)builder.GetSize();
-    data->r_buffer_size = sz + sizeof(int);
+    data->r_buffer_size = fbBufferSize + sizeof(int);
     data->r_buffer = (char*)malloc(data->r_buffer_size);
-    data->raw_json = nullptr;
+    data->raw_json = NULL;
 
     // copy int to char buffer
-    memcpy(data->r_buffer, &sz, 4);
+    memcpy(data->r_buffer, &fbBufferSize, 4);
 
     // copy binary data to buffer
-    memcpy(data->r_buffer + sizeof(sz), (void *)builder.GetBufferPointer(), sz);
+    memcpy(data->r_buffer + sizeof(fbBufferSize), fbBuffer, fbBufferSize);
 
-    builder.Clear();
+    free(value);
+    free(key);
+    free(operation);
 
     return isShutdownCommand;
 }
 
-transport_data * read_next_flatbuffer(halfreaded msg, ssize_t & sz, const ssize_t nread, const char *base, const uv_stream_t * stream) {
-    if (sz == nread) {
+struct transport_data * read_next_flatbuffer(struct halfreaded msg, ssize_t * sz, const ssize_t nread, const char *base, const uv_stream_t * stream) {
+    if (*sz == nread) {
         return NULL;
     }
 
-    ssize_t data_tail_sz = nread - sz;
+    ssize_t data_tail_sz = nread - *sz;
 
     if (msg.message_size_readed_bytes != 4 && msg.message_buffer == NULL) {
-        while (sz != nread && msg.message_size_readed_bytes < 4) {
+        while (*sz != nread && msg.message_size_readed_bytes < 4) {
             msg.message_size_readed_bytes++;
-            unsigned char ch = (unsigned char) (*(base + sz));
+            unsigned char ch = (unsigned char) (*(base + *sz));
             msg.message_size <<= 8;
             msg.message_size |= ch;
-            ++sz;
+            *sz = *sz + 1;
         }
     }
 
-    if (msg.message_size_readed_bytes != 4 || sz == nread) {
+    if (msg.message_size_readed_bytes != 4 || *sz == nread) {
         return NULL;
     }
 
-    data_tail_sz = nread - sz;
+    data_tail_sz = nread - *sz;
 
     if (msg.message_buffer == NULL) {
         msg.message_size = ntohl(msg.message_size);
@@ -199,25 +157,25 @@ transport_data * read_next_flatbuffer(halfreaded msg, ssize_t & sz, const ssize_
 
     if (msg.message_tail_sz > 0) {
         if (msg.message_tail_sz <= data_tail_sz) {
-            memcpy(msg.message_buffer, base + sz, msg.message_tail_sz);
+            memcpy(msg.message_buffer, base + *sz, msg.message_tail_sz);
             sz += msg.message_tail_sz;
         } else {
-            memcpy(msg.message_buffer + (msg.message_size - data_tail_sz), base + sz, data_tail_sz);
+            memcpy(msg.message_buffer + (msg.message_size - data_tail_sz), base + *sz, data_tail_sz);
             msg.message_tail_sz -= data_tail_sz;
             return NULL;
         }
     } else {
         if (msg.message_size <= data_tail_sz) {
-            memcpy(msg.message_buffer, base + sz, msg.message_size);
+            memcpy(msg.message_buffer, base + *sz, msg.message_size);
             sz += msg.message_size;
         } else {
-            memcpy(msg.message_buffer, base + sz, data_tail_sz);
+            memcpy(msg.message_buffer, base + *sz, data_tail_sz);
             msg.message_tail_sz = msg.message_size - data_tail_sz;
             return NULL;
         }
     }
 
-    transport_data *data = (transport_data *)malloc(sizeof(transport_data));
+    struct transport_data *data = (struct transport_data *)malloc(sizeof(struct transport_data));
     data->r_buffer = (char*)malloc(msg.message_size);
     memcpy(data->r_buffer, msg.message_buffer, msg.message_size);
     data->handle = (uv_stream_t *) stream;
@@ -232,7 +190,7 @@ transport_data * read_next_flatbuffer(halfreaded msg, ssize_t & sz, const ssize_
 }
 
 
-halfreaded * get_client_by_stream(uv_stream_t * stream) {
+struct halfreaded * get_client_by_stream(uv_stream_t * stream) {
     if (stream == NULL) {
         return NULL;
     }
@@ -253,7 +211,7 @@ halfreaded * get_client_by_stream(uv_stream_t * stream) {
     }
 
     debug("new client cell allocation");    
-    client_pool[first_free_index] = (halfreaded *)calloc(1, sizeof(halfreaded));
+    client_pool[first_free_index] = (struct halfreaded *)calloc(1, sizeof(struct halfreaded));
     client_pool[first_free_index]->handle = stream;
     return client_pool[first_free_index];
 }
@@ -294,10 +252,10 @@ void read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t *buf) {
     }
 
     ssize_t processed_bytes = 0;
-    transport_data * request_data = NULL;
+    struct transport_data * request_data = NULL;
     bool isShutdownCommand = false;
 
-    halfreaded * read_transport = get_client_by_stream(stream);
+    struct halfreaded * read_transport = get_client_by_stream(stream);
     if (!read_transport) {
         free_client_by_stream(stream);
         uv_close((uv_handle_t*)stream, on_close_free);
@@ -306,7 +264,7 @@ void read_cb(uv_stream_t * stream, ssize_t nread, const uv_buf_t *buf) {
     }
 
     do {
-        request_data = read_next_flatbuffer(*read_transport, processed_bytes, nread, buf->base, stream);
+        request_data = read_next_flatbuffer(*read_transport, &processed_bytes, nread, buf->base, stream);
         isShutdownCommand = process_command(request_data);
         debug("request buffer transport size %ld", request_data->r_buffer_size);
         send_command_back(request_data);
@@ -389,6 +347,7 @@ int main(int argc, char *argv[]) {
     //uv_signal_init(loop, sigint);
     //uv_signal_start(sigint, on_sigint_received, SIGINT);
 
+    main_data = ht_make();
     struct sockaddr_in addr;
     uv_ip4_addr("127.0.0.1", 7000, &addr);
     uv_tcp_init(uv_default_loop(), &server);
@@ -398,7 +357,9 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Error on listening: %s\n", uv_strerror(r));
         return r;
     }
-    return uv_run(uv_default_loop(), UV_RUN_DEFAULT);
+    int res =  uv_run(uv_default_loop(), UV_RUN_DEFAULT);
+    ht_destroy(main_data);
+    return res;
 }
 
 

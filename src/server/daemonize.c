@@ -12,7 +12,7 @@
 int daemon_pid;
 char * lock_path;
 
-void lockpid() {
+static void lockpid() {
     int fd;
     int len;
     int sent;
