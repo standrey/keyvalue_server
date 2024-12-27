@@ -36,8 +36,8 @@ flatbuffers_generate_headers(
     SCHEMAS resources/reply.fbs;resources/request.fbs
 )
 
-add_library(fbwrapper src/server/fbwrapper.cpp)
-target_include_directories(fbwrapper PUBLIC include ${CMAKE_BINARY_DIR}/FlatBuffersGeneratedHeaders)
+add_library(fbwrapper OBJECT src/server/fbwrapper.cpp)
+target_include_directories(fbwrapper PRIVATE include ${CMAKE_BINARY_DIR}/FlatBuffersGeneratedHeaders)
 target_link_libraries(fbwrapper PRIVATE flatbuffers)
 target_compile_features(fbwrapper PRIVATE cxx_std_20)
 
@@ -53,11 +53,13 @@ add_executable(server
     src/server/hashtable.c
 )
 target_include_directories(server PUBLIC include)
+target_compile_features(server PRIVATE c_std_11)
+target_link_libraries(server PRIVATE uv_a fbwrapper)
+set_target_properties(server PROPERTIES LINKER_LANGUAGE C)
 
 target_link_libraries(client_async PRIVATE flatbuffers uv_a Boost::system Boost::asio Boost::endian)
 target_link_libraries(client PRIVATE flatbuffers uv_a)
 
-target_link_libraries(server PRIVATE uv_a fbwrapper)
 
 target_link_options(client PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
 target_link_options(client_async PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
@@ -66,7 +68,6 @@ target_compile_options(client PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
 target_compile_options(client_async PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
 target_compile_options(server PRIVATE "$<$<CONFIG:DEBUG>:-fsanitize=address>")
 
-target_compile_features(server PRIVATE c_std_11)
 target_compile_features(client_async PRIVATE cxx_std_20)
 
 # compiler options / macro hints

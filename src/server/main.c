@@ -17,8 +17,15 @@ static uv_tcp_t server;
 extern int daemonize();
 
 #define CLIENT_POOL_SIZE 1024
+
 static struct halfreaded * client_pool[CLIENT_POOL_SIZE]; // assume that  uv_default_loop uses one thread 
 static struct ht* main_data;
+static long total_req = 0;
+static long set_req = 0;
+static long get_hit_req = 0;
+static long get_miss_req = 0;
+static long get_bloommiss_req = 0;
+
 
 void alloc_buffer(uv_handle_t * handle, size_t size, uv_buf_t *buf) {
     char *base;
@@ -49,22 +56,16 @@ void send_command_back(struct transport_data * tr_data) {
 bool process_command(struct transport_data * data) {
     bool isShutdownCommand = false;
 
-    static long total_req = 0;
-    static long set_req = 0;
-    static long get_hit_req = 0;
-    static long get_miss_req = 0;
-    static long get_bloommiss_req = 0;
-
     total_req++;
 
     char * operation = NULL;
     char * key = NULL;
     char * value = NULL;
 
-    size_t fbBufferSize = 0;
+    unsigned int fbBufferSize = 0;
     char * fbBuffer = 0;
 
-    bool fbResult = getFbValues(data, operation, key, value);
+    bool fbResult = getFbValues(data->r_buffer, &operation, &key, &value);
 
     if (!fbResult) {
         free(data->r_buffer);
@@ -79,10 +80,10 @@ bool process_command(struct transport_data * data) {
 
         if (str) {
             ++get_hit_req;
-            setFbValues(ErrorCodes::SUCCESS, "", fbBuffer, fbBufferSize);
+            setFbValues(SUCCESS, "", &fbBuffer, &fbBufferSize);
         } else {
             ++get_miss_req;
-            setFbValues(ErrorCodes::NOT_FOUND, "", fbBuffer, fbBufferSize);
+            setFbValues(NOT_FOUND, "", &fbBuffer, &fbBufferSize);
         }
     } else if (strcmp(operation,"set")==0) {
         bool exists = false;
@@ -90,19 +91,19 @@ bool process_command(struct transport_data * data) {
         exists = ht_get(main_data, key) != NULL;
 
         if (exists) {
-            setFbValues(ErrorCodes::ALREADY_EXISTS, "", fbBuffer, fbBufferSize);
+            setFbValues(ALREADY_EXISTS, "", &fbBuffer, &fbBufferSize);
         } else {
-            main_data.set(key, value);
-            setFbValues(ErrorCodes::SUCCESS, "", fbBuffer, fbBufferSize);
+            ht_set(main_data, key, value);
+            setFbValues(SUCCESS, "", &fbBuffer, &fbBufferSize);
         }
     }
     else if (strcmp(operation,"stats")==0) {
         char buffer[128];
         snprintf(buffer, sizeof(buffer), "total_req: %ld, set_req: %ld, get_hit_req: %ld, get_miss_req: %ld, bloom_miss_req: %ld", total_req, set_req, get_hit_req, get_miss_req, get_bloommiss_req);
-        setFbValues(ErrorCodes::SUCCESS, buffer, fbBuffer, fbBufferSize);
+        setFbValues(SUCCESS, buffer, &fbBuffer, &fbBufferSize);
     }
     else if (strcmp(operation, "shutdown") == 0) {
-        setFbValues(ErrorCodes::SUCCESS, "", fbBuffer, fbBufferSize);
+        setFbValues(SUCCESS, "", &fbBuffer, &fbBufferSize);
         isShutdownCommand = true;
     }
 
@@ -335,7 +336,7 @@ int main(int argc, char *argv[]) {
                 {
                     i = 0;
                     while(usage_strings[i] != NULL) {
-                        printf(usage_strings[i]);
+                        puts(usage_strings[i]);
                         i++;
                     }
                     break;
